@@ -1,0 +1,48 @@
+{
+  "articles": [
+    {
+      "id": "pak-women-sri-lanka-2026",
+      "category": "PAKISTAN WOMEN",
+      "title": "Pakistan women squads announced for Sri Lanka series",
+      "summary": "Pakistan named 15-player ODI and T20I squads for six white-ball matches in Hambantota.",
+      "image_url": "/assets/images/pakistan_women.png",
+      "published_at": "2026-07-18T10:00:00Z",
+      "read_time": "4 min read",
+      "body": ["Pakistan announced its squads for the Sri Lanka tour.", "The tour contains three ODIs and three T20Is in Hambantota."],
+      "source": "Pakistan Cricket Board / ICC"
+    },
+    {
+      "id": "babar-discipline-fitness-2026",
+      "category": "PLAYER NEWS",
+      "title": "Babar Azam returns focused on discipline, fitness and performance",
+      "summary": "Pakistan's Test captain says preparation and consistency will guide the team's next assignments.",
+      "image_url": "/assets/images/babar_batting.png",
+      "published_at": "2026-07-06T10:00:00Z",
+      "read_time": "5 min read",
+      "body": ["Babar placed discipline, fitness and performance at the centre of his plans.", "Pakistan will look to turn that renewed confidence into stronger Test results."],
+      "source": "Pakistan Cricket Board"
+    },
+    {
+      "id": "u19-sports-psychology-2026",
+      "category": "U19 DEVELOPMENT",
+      "title": "Sports psychology added to Pakistan U19 development camp",
+      "summary": "The PCB introduced structured mental-skills work alongside technical and tactical training in Multan.",
+      "image_url": "/assets/images/u19_training.png",
+      "published_at": "2026-07-17T10:00:00Z",
+      "read_time": "3 min read",
+      "body": ["The PCB introduced a sports psychology programme at its U19 camp.", "It covers concentration, confidence and decision-making under pressure."],
+      "source": "Pakistan Cricket Board"
+    },
+    {
+      "id": "womens-t20-world-cup-2028-host",
+      "category": "GLOBAL CRICKET",
+      "title": "Pakistan confirmed as host of Women's T20 World Cup 2028",
+      "summary": "The ICC approved the qualification pathway for the 12-team tournament to be hosted by the PCB.",
+      "image_url": "/assets/images/cricket_stadium.png",
+      "published_at": "2026-06-01T10:00:00Z",
+      "read_time": "4 min read",
+      "body": ["The ICC endorsed the qualification pathway for the 2028 tournament.", "The event will feature 12 teams, including two Global Qualifier places."],
+      "source": "International Cricket Council"
+    }
+  ]
+}

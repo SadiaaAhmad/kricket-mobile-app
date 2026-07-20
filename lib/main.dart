@@ -14,6 +14,7 @@ class K {
 
 class ArticleData {
   const ArticleData({
+    required this.id,
     required this.category,
     required this.title,
     required this.summary,
@@ -24,6 +25,7 @@ class ArticleData {
     required this.source,
   });
 
+  final String id;
   final String category;
   final String title;
   final String summary;
@@ -32,10 +34,35 @@ class ArticleData {
   final String readTime;
   final List<String> body;
   final String source;
+
+  factory ArticleData.fromJson(Map<String, dynamic> json) => ArticleData(
+        id: json['id'] as String,
+        category: json['category'] as String,
+        title: json['title'] as String,
+        summary: json['summary'] as String,
+        image: json['image_url'] as String,
+        date: json['published_at'] as String,
+        readTime: json['read_time'] as String,
+        body: (json['body'] as List<dynamic>).cast<String>(),
+        source: json['source'] as String,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'category': category,
+        'title': title,
+        'summary': summary,
+        'image_url': image,
+        'published_at': date,
+        'read_time': readTime,
+        'body': body,
+        'source': source,
+      };
 }
 
 const realArticles = <ArticleData>[
   ArticleData(
+    id: 'pak-women-sri-lanka-2026',
     category: 'PAKISTAN WOMEN',
     title: 'Pakistan women squads announced for Sri Lanka series',
     summary: 'Pakistan named 15-player ODI and T20I squads for six white-ball matches in Hambantota.',
@@ -50,6 +77,7 @@ const realArticles = <ArticleData>[
     ],
   ),
   ArticleData(
+    id: 'babar-discipline-fitness-2026',
     category: 'PLAYER NEWS',
     title: 'Babar Azam returns focused on discipline, fitness and performance',
     summary: 'Pakistan’s Test captain says preparation and consistency will guide the team’s next assignments.',
@@ -64,6 +92,7 @@ const realArticles = <ArticleData>[
     ],
   ),
   ArticleData(
+    id: 'u19-sports-psychology-2026',
     category: 'U19 DEVELOPMENT',
     title: 'Sports psychology added to Pakistan U19 development camp',
     summary: 'The PCB introduced structured mental-skills work alongside technical and tactical training in Multan.',
@@ -78,6 +107,7 @@ const realArticles = <ArticleData>[
     ],
   ),
   ArticleData(
+    id: 'womens-t20-world-cup-2028-host',
     category: 'GLOBAL CRICKET',
     title: 'Pakistan confirmed as host of Women’s T20 World Cup 2028',
     summary: 'The ICC approved the qualification pathway for the 12-team tournament to be hosted by the PCB.',
@@ -92,6 +122,48 @@ const realArticles = <ArticleData>[
     ],
   ),
 ];
+
+abstract interface class NewsApi {
+  Future<List<ArticleData>> getArticles({String? category});
+  Future<ArticleData> getArticle(String id);
+}
+
+class MockNewsApi implements NewsApi {
+  const MockNewsApi({this.latency = const Duration(milliseconds: 450)});
+  final Duration latency;
+
+  @override
+  Future<List<ArticleData>> getArticles({String? category}) async {
+    await Future<void>.delayed(latency);
+    final response = <String, dynamic>{
+      'success': true,
+      'data': [for (final article in realArticles) article.toJson()],
+      'meta': {'page': 1, 'per_page': realArticles.length, 'total': realArticles.length},
+    };
+    final items = (response['data'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .map(ArticleData.fromJson)
+        .where((article) => category == null || article.category == category)
+        .toList();
+    return items;
+  }
+
+  @override
+  Future<ArticleData> getArticle(String id) async {
+    await Future<void>.delayed(latency);
+    final match = realArticles.where((article) => article.id == id);
+    if (match.isEmpty) throw const NewsApiException(404, 'Article not found');
+    return ArticleData.fromJson(match.first.toJson());
+  }
+}
+
+class NewsApiException implements Exception {
+  const NewsApiException(this.statusCode, this.message);
+  final int statusCode;
+  final String message;
+  @override
+  String toString() => 'NewsApiException($statusCode): $message';
+}
 
 class KricketApp extends StatelessWidget {
   const KricketApp({super.key});
@@ -117,12 +189,34 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   int page = 0;
+  late final Future<List<ArticleData>> articles;
+
+  @override
+  void initState() {
+    super.initState();
+    articles = const MockNewsApi().getArticles();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: page < 2 ? const KricketBar() : null,
-        body: IndexedStack(index: page, children: const [HomeScreen(), NewsScreen(), PlaceholderScreen(), PlaceholderScreen(), PlaceholderScreen()]),
+        body: FutureBuilder<List<ArticleData>>(
+          future: articles,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) return ApiErrorView(error: snapshot.error!);
+            if (!snapshot.hasData) return const Center(child: CircularProgressIndicator(color: K.green));
+            return IndexedStack(index: page, children: [HomeScreen(articles: snapshot.data!), NewsScreen(articles: snapshot.data!), const PlaceholderScreen(), const PlaceholderScreen(), const PlaceholderScreen()]);
+          },
+        ),
         bottomNavigationBar: KricketNav(index: page, onTap: (i) => setState(() => page = i)),
       );
+}
+
+class ApiErrorView extends StatelessWidget {
+  const ApiErrorView({super.key, required this.error});
+  final Object error;
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.cloud_off, color: K.green, size: 44), const SizedBox(height: 12), const Text('Unable to load news', style: TextStyle(color: K.dark, fontSize: 20, fontWeight: FontWeight.w700)), const SizedBox(height: 6), Text('$error', textAlign: TextAlign.center, style: const TextStyle(color: K.body))])));
 }
 
 class KricketBar extends StatelessWidget implements PreferredSizeWidget {
@@ -159,7 +253,8 @@ class KricketNav extends StatelessWidget {
 }
 
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, required this.articles});
+  final List<ArticleData> articles;
   static const hero = 'assets/images/babar_batting.png';
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
@@ -169,11 +264,11 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 24),
           Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: K.green, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, 4))]), child: Row(children: [const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('●  LIVE • PAK VS AUS', style: TextStyle(color: Color(0xFF7BBD93), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6)), SizedBox(height: 4), Text.rich(TextSpan(children: [TextSpan(text: 'PAK 245/4 ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)), TextSpan(text: '(42.3 ov)', style: TextStyle(fontSize: 12, color: Color(0x997BBD93)))]), style: TextStyle(color: Color(0xFF7BBD93)))])), FilledButton(style: FilledButton.styleFrom(backgroundColor: K.lime, foregroundColor: K.limeText, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), onPressed: () {}, child: const Text('VIEW SCORE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)))]))),
           const SizedBox(height: 24),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: GestureDetector(onTap:()=>openArticle(context,realArticles[1]),child:ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: Colors.white, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Stack(children: [NetImage(hero, height: 191, width: double.infinity), Positioned(left: 12, top: 12, child: Container(color: const Color(0xFFDC3545), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), child: const Text('TOP STORY', style: TextStyle(color: Colors.white, fontSize: 10))))]), Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(realArticles[1].title, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w600)), const SizedBox(height: 8), Text(realArticles[1].summary, style: const TextStyle(color: K.body, fontSize: 16, height: 1.5)), const SizedBox(height: 12), const Text('READ MORE  ➜', style: TextStyle(color: K.limeText, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2))]))]))))),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: GestureDetector(onTap:()=>openArticle(context,articles[1]),child:ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: Colors.white, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Stack(children: [NetImage(hero, height: 191, width: double.infinity), Positioned(left: 12, top: 12, child: Container(color: const Color(0xFFDC3545), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), child: const Text('TOP STORY', style: TextStyle(color: Colors.white, fontSize: 10))))]), Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(articles[1].title, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w600)), const SizedBox(height: 8), Text(articles[1].summary, style: const TextStyle(color: K.body, fontSize: 16, height: 1.5)), const SizedBox(height: 12), const Text('READ MORE  ➜', style: TextStyle(color: K.limeText, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2))]))]))))),
           const SizedBox(height: 24),
           const QuickActions(),
           const SectionTitle(title: 'Cricket News', action: 'SEE ALL'),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Column(children: [NewsRow(article: realArticles[0]), const SizedBox(height: 16), NewsRow(article: realArticles[1]), const SizedBox(height: 16), NewsRow(article: realArticles[2])])),
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Column(children: [NewsRow(article: articles[0]), const SizedBox(height: 16), NewsRow(article: articles[1]), const SizedBox(height: 16), NewsRow(article: articles[2])])),
           const SectionTitle(title: 'Trending Stories', action: '↗'),
           SizedBox(height: 214, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: const [TrendCard(image: 'assets/images/u19_training.png', title: 'U19 development camp adds sports psychology'), SizedBox(width: 16), TrendCard(image: 'assets/images/cricket_stadium.png', title: 'Pakistan to host Women’s T20 World Cup 2028')]))
         ]),
@@ -192,14 +287,15 @@ class NewsRow extends StatelessWidget { const NewsRow({super.key,required this.a
 class TrendCard extends StatelessWidget { const TrendCard({super.key,required this.image,required this.title}); final String image,title; @override Widget build(BuildContext context)=>Container(width:256,decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(12),boxShadow:const [BoxShadow(color:Color(0x10000000),blurRadius:3)]),clipBehavior:Clip.antiAlias,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[NetImage(image,width:256,height:144),Padding(padding:const EdgeInsets.all(12),child:Text(title,style:const TextStyle(color:K.ink,fontSize:16,height:1.35,fontWeight:FontWeight.w700))) ])); }
 
 class NewsScreen extends StatelessWidget {
-  const NewsScreen({super.key});
+  const NewsScreen({super.key, required this.articles});
+  final List<ArticleData> articles;
   @override Widget build(BuildContext context)=>SingleChildScrollView(padding:const EdgeInsets.only(bottom:32),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     SizedBox(height:58,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16,vertical:8),children:[chip('All',true),chip('Pakistan'),chip('International'),chip('Domestic'),chip('PSL')])),
-    Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:GestureDetector(onTap:()=>openArticle(context,realArticles[0]),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Stack(children:[NetImage(realArticles[0].image,width:double.infinity,height:202),Container(height:202,decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Color(0xD9001C10)]))),Positioned(left:18,right:18,bottom:18,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(realArticles[0].title,style:const TextStyle(color:Colors.white,fontSize:23,height:1.15,fontWeight:FontWeight.w700),maxLines:2,overflow:TextOverflow.ellipsis),const SizedBox(height:8),Text(realArticles[0].summary,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,fontSize:13))]))])))),
+    Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:GestureDetector(onTap:()=>openArticle(context,articles[0]),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Stack(children:[NetImage(articles[0].image,width:double.infinity,height:202),Container(height:202,decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Color(0xD9001C10)]))),Positioned(left:18,right:18,bottom:18,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(articles[0].title,style:const TextStyle(color:Colors.white,fontSize:23,height:1.15,fontWeight:FontWeight.w700),maxLines:2,overflow:TextOverflow.ellipsis),const SizedBox(height:8),Text(articles[0].summary,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,fontSize:13))]))])))),
     const SectionTitle(title:'Latest News',action:'VIEW ALL ›'),
-    for(var article in realArticles) NewsListCard(article:article),
+    for(var article in articles) NewsListCard(article:article),
     const SectionTitle(title:'Trending Stories',action:''),
-    SizedBox(height:150,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16),children:[RealTrendWide(article:realArticles[1]),const SizedBox(width:12),RealTrendWide(article:realArticles[3])]))
+    SizedBox(height:150,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16),children:[RealTrendWide(article:articles[1]),const SizedBox(width:12),RealTrendWide(article:articles[3])]))
   ]));
   static Widget chip(String t,[bool active=false])=>Container(margin:const EdgeInsets.only(right:8),padding:const EdgeInsets.symmetric(horizontal:22),alignment:Alignment.center,decoration:BoxDecoration(color:active?K.lime:const Color(0xFFF0F1F0),border:active?null:Border.all(color:const Color(0xFFCBD0CB)),borderRadius:BorderRadius.circular(22)),child:Text(t,style:TextStyle(color:active?K.limeText:K.body,fontSize:12,fontWeight:FontWeight.w600)));
 }

@@ -1,4 +1,7 @@
+﻿import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 void main() => runApp(const KricketApp());
 
@@ -47,6 +50,25 @@ class ArticleData {
         source: json['source'] as String,
       );
 
+  factory ArticleData.fromBackendJson(Map<String, dynamic> json) {
+    final imagePath = (json['Image'] as String? ?? '').trim();
+    final imageUrl = imagePath.isEmpty
+        ? 'assets/images/cricket_stadium.png'
+        : 'https://kricket.pk/images/${imagePath.replaceFirst(RegExp(r'^/+'), '')}';
+    final content = _cleanText(json['Content'] as String? ?? '');
+    return ArticleData(
+      id: '${json['ArticleId']}',
+      category: _cleanText(json['Title'] as String? ?? 'CRICKET NEWS').toUpperCase(),
+      title: _cleanText(json['Heading'] as String? ?? 'Kricket.pk article'),
+      summary: content,
+      image: imageUrl,
+      date: _formatBackendDate(json['Dated'] as String?),
+      readTime: '3 min read',
+      body: [content.isEmpty ? 'Article content is not available yet.' : content],
+      source: _cleanText(json['Writer'] as String? ?? 'kricket.pk'),
+    );
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'category': category,
@@ -58,6 +80,25 @@ class ArticleData {
         'body': body,
         'source': source,
       };
+}
+
+String _formatBackendDate(String? raw) {
+  final date = raw == null ? null : DateTime.tryParse(raw)?.toLocal();
+  if (date == null) return 'Latest';
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return '${date.day} ${months[date.month - 1]} ${date.year}';
+}
+
+String _cleanText(String? raw) {
+  if (raw == null) return '';
+  var s = raw.trim();
+  s = s.replaceAll('â€¢', '•');
+  s = s.replaceAll('â€™', '’');
+  s = s.replaceAll('â€œ', '“');
+  s = s.replaceAll('â€', '”');
+  s = s.replaceAll('â€”', '—');
+  s = s.replaceAll('â€º', '›');
+  return s;
 }
 
 const realArticles = <ArticleData>[
@@ -124,7 +165,7 @@ const realArticles = <ArticleData>[
 ];
 
 abstract interface class NewsApi {
-  Future<List<ArticleData>> getArticles({String? category});
+  Future<List<ArticleData>> getArticles({String? category, int limit = 10, int start = 0});
   Future<ArticleData> getArticle(String id);
 }
 
@@ -133,7 +174,7 @@ class MockNewsApi implements NewsApi {
   final Duration latency;
 
   @override
-  Future<List<ArticleData>> getArticles({String? category}) async {
+  Future<List<ArticleData>> getArticles({String? category, int limit = 10, int start = 0}) async {
     await Future<void>.delayed(latency);
     final response = <String, dynamic>{
       'success': true,
@@ -154,6 +195,71 @@ class MockNewsApi implements NewsApi {
     final match = realArticles.where((article) => article.id == id);
     if (match.isEmpty) throw const NewsApiException(404, 'Article not found');
     return ArticleData.fromJson(match.first.toJson());
+  }
+}
+
+class KricketNewsApi implements NewsApi {
+  const KricketNewsApi({http.Client? client}) : _client = client;
+
+  static const _baseUri = 'https://kricket.pk/backend/api';
+  final http.Client? _client;
+
+  @override
+  Future<List<ArticleData>> getArticles({String? category, int limit = 10, int start = 0}) async {
+    final uri = Uri.parse('$_baseUri/gettoparticles').replace(queryParameters: {'Limit': '$limit', 'Start': '$start'});
+    final client = _client ?? http.Client();
+    try {
+      final response = await client.get(uri).timeout(const Duration(seconds: 15));
+      if (response.statusCode != 200) throw NewsApiException(response.statusCode, 'Unable to load articles');
+      final payload = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      if (payload['status'] != true) throw const NewsApiException(502, 'Kricket API returned an unsuccessful response');
+      final received = payload['received_data'] as Map<String, dynamic>?;
+      final articles = (received?['articles'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>()
+          .map(ArticleData.fromBackendJson)
+          .where((article) => category == null || article.category == category)
+          .toList();
+      return articles;
+    } on NewsApiException {
+      rethrow;
+    } catch (_) {
+      throw const NewsApiException(503, 'Kricket articles service is unavailable');
+    } finally {
+      if (_client == null) client.close();
+    }
+  }
+
+  @override
+  Future<ArticleData> getArticle(String id) async {
+    final articles = await getArticles(limit: 100);
+    return articles.firstWhere(
+      (article) => article.id == id,
+      orElse: () => throw const NewsApiException(404, 'Article not found in the loaded page'),
+    );
+  }
+}
+
+class FallbackNewsApi implements NewsApi {
+  const FallbackNewsApi(this.primary, this.fallback);
+  final NewsApi primary;
+  final NewsApi fallback;
+
+  @override
+  Future<List<ArticleData>> getArticles({String? category, int limit = 10, int start = 0}) async {
+    try {
+      return await primary.getArticles(category: category, limit: limit, start: start);
+    } on NewsApiException {
+      return fallback.getArticles(category: category, limit: limit, start: start);
+    }
+  }
+
+  @override
+  Future<ArticleData> getArticle(String id) async {
+    try {
+      return await primary.getArticle(id);
+    } on NewsApiException {
+      return fallback.getArticle(id);
+    }
   }
 }
 
@@ -194,7 +300,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    articles = const MockNewsApi().getArticles();
+    articles = const KricketNewsApi().getArticles(limit: 10, start: 0);
   }
 
   @override
@@ -255,26 +361,32 @@ class KricketNav extends StatelessWidget {
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.articles});
   final List<ArticleData> articles;
-  static const hero = 'assets/images/babar_batting.png';
-  @override
-  Widget build(BuildContext context) => SingleChildScrollView(
-        padding: const EdgeInsets.only(top: 16, bottom: 32),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Welcome to Kricket.pk', style: TextStyle(color: K.dark, fontSize: 24, height: 1.33, fontWeight: FontWeight.w700, letterSpacing: -.6)), Text('Stay updated with the latest cricket news.', style: TextStyle(color: K.body, fontSize: 16, height: 1.5))])),
-          const SizedBox(height: 24),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: K.green, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, 4))]), child: Row(children: [const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('●  LIVE • PAK VS AUS', style: TextStyle(color: Color(0xFF7BBD93), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6)), SizedBox(height: 4), Text.rich(TextSpan(children: [TextSpan(text: 'PAK 245/4 ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)), TextSpan(text: '(42.3 ov)', style: TextStyle(fontSize: 12, color: Color(0x997BBD93)))]), style: TextStyle(color: Color(0xFF7BBD93)))])), FilledButton(style: FilledButton.styleFrom(backgroundColor: K.lime, foregroundColor: K.limeText, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), onPressed: () {}, child: const Text('VIEW SCORE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)))]))),
-          const SizedBox(height: 24),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: GestureDetector(onTap:()=>openArticle(context,articles[1]),child:ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: Colors.white, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Stack(children: [NetImage(hero, height: 191, width: double.infinity), Positioned(left: 12, top: 12, child: Container(color: const Color(0xFFDC3545), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), child: const Text('TOP STORY', style: TextStyle(color: Colors.white, fontSize: 10))))]), Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(articles[1].title, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w600)), const SizedBox(height: 8), Text(articles[1].summary, style: const TextStyle(color: K.body, fontSize: 16, height: 1.5)), const SizedBox(height: 12), const Text('READ MORE  ➜', style: TextStyle(color: K.limeText, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2))]))]))))),
-          const SizedBox(height: 24),
-          const QuickActions(),
-          const SectionTitle(title: 'Cricket News', action: 'SEE ALL'),
-          Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Column(children: [NewsRow(article: articles[0]), const SizedBox(height: 16), NewsRow(article: articles[1]), const SizedBox(height: 16), NewsRow(article: articles[2])])),
-          const SectionTitle(title: 'Trending Stories', action: '↗'),
-          SizedBox(height: 214, child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: const [TrendCard(image: 'assets/images/u19_training.png', title: 'U19 development camp adds sports psychology'), SizedBox(width: 16), TrendCard(image: 'assets/images/cricket_stadium.png', title: 'Pakistan to host Women’s T20 World Cup 2028')]))
-        ]),
-      );
-}
 
+  @override
+  Widget build(BuildContext context) {
+    final topStory = articles.first;
+    final newsItems = articles.take(3).toList();
+    final trending = (articles.length > 3 ? articles.skip(3) : articles.skip(1)).take(4).toList();
+
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return SingleChildScrollView(
+      padding: EdgeInsets.only(top: 16, bottom: 32 + safeBottom + 72),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Padding(padding: EdgeInsets.symmetric(horizontal: 24), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Welcome to Kricket.pk', style: TextStyle(color: K.dark, fontSize: 24, height: 1.33, fontWeight: FontWeight.w700, letterSpacing: -.6)), Text('Stay updated with the latest cricket news.', style: TextStyle(color: K.body, fontSize: 16, height: 1.5))])),
+        const SizedBox(height: 24),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Container(padding: const EdgeInsets.all(17), decoration: BoxDecoration(color: K.green, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, 4))]), child: Row(children: [const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('LIVE - PAK VS AUS', style: TextStyle(color: Color(0xFF7BBD93), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6)), SizedBox(height: 4), Text.rich(TextSpan(children: [TextSpan(text: 'PAK 245/4 ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)), TextSpan(text: '(42.3 ov)', style: TextStyle(fontSize: 12, color: Color(0x997BBD93)))]), style: TextStyle(color: Color(0xFF7BBD93)))])), FilledButton(style: FilledButton.styleFrom(backgroundColor: K.lime, foregroundColor: K.limeText, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)), onPressed: () {}, child: const Text('VIEW SCORE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)))]))),
+           // top story metadata moved into the top story card
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: GestureDetector(onTap: () => openArticle(context, topStory, articles), child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Container(color: Colors.white, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Stack(children: [NetImage(topStory.image, height: 191, width: double.infinity), Positioned(left: 12, top: 12, child: Container(color: const Color(0xFFDC3545), padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2), child: const Text('TOP STORY', style: TextStyle(color: Colors.white, fontSize: 10))))]), Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(topStory.title, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w600)), const SizedBox(height: 8), Text(topStory.summary, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(color: K.body, fontSize: 16, height: 1.5)), const SizedBox(height: 12), const Text('READ MORE', style: TextStyle(color: K.limeText, fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 1.2))]))]))))),
+        const SizedBox(height: 24),
+        const QuickActions(),
+        const SectionTitle(title: 'Cricket News', action: 'SEE ALL'),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Column(children: [for (var i = 0; i < newsItems.length; i++) ...[NewsRow(article: newsItems[i], articles: articles), if (i != newsItems.length - 1) const SizedBox(height: 16)]])),
+        const SectionTitle(title: 'Trending Stories', action: ''),
+        SizedBox(height: 214, child: ListView.separated(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), itemBuilder: (context, index) => TrendCard(article: trending[index], articles: articles), separatorBuilder: (_, __) => const SizedBox(width: 16), itemCount: trending.length))
+      ]),
+    );
+  }
+}
 class QuickActions extends StatelessWidget {
   const QuickActions({super.key});
   @override
@@ -283,35 +395,40 @@ class QuickActions extends StatelessWidget {
 
 class SectionTitle extends StatelessWidget { const SectionTitle({super.key,required this.title,required this.action}); final String title,action; @override Widget build(BuildContext context)=>Padding(padding:const EdgeInsets.fromLTRB(24,24,24,16),child:Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[Text(title,style:const TextStyle(color:K.dark,fontSize:20,fontWeight:FontWeight.w600)),Text(action,style:const TextStyle(color:K.limeText,fontSize:12,fontWeight:FontWeight.w700))])); }
 class NetImage extends StatelessWidget { const NetImage(this.url,{super.key,this.height,this.width,this.fit=BoxFit.cover}); final String url; final double? height,width; final BoxFit fit; @override Widget build(BuildContext context)=>url.startsWith('assets/')?Image.asset(url,height:height,width:width,fit:fit,errorBuilder:(_,__,___)=>_fallback()):Image.network(url,height:height,width:width,fit:fit,errorBuilder:(_,__,___)=>_fallback()); Widget _fallback()=>Container(height:height,width:width,color:const Color(0xFFE4EAE5),child:const Icon(Icons.sports_cricket,color:K.green,size:42)); }
-class NewsRow extends StatelessWidget { const NewsRow({super.key,required this.article}); final ArticleData article; @override Widget build(BuildContext context)=>InkWell(onTap:()=>openArticle(context,article),child:Row(children:[ClipRRect(borderRadius:BorderRadius.circular(8),child:NetImage(article.image,width:96,height:96)),const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(article.category,style:const TextStyle(color:K.limeText,fontSize:10,fontWeight:FontWeight.w700,letterSpacing:.6)),const SizedBox(height:4),Text(article.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:K.ink,fontSize:16,height:1.35,fontWeight:FontWeight.w700)),const SizedBox(height:4),Text('${article.date} • ${article.readTime}',style:const TextStyle(color:K.body,fontSize:11))]))])); }
-class TrendCard extends StatelessWidget { const TrendCard({super.key,required this.image,required this.title}); final String image,title; @override Widget build(BuildContext context)=>Container(width:256,decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(12),boxShadow:const [BoxShadow(color:Color(0x10000000),blurRadius:3)]),clipBehavior:Clip.antiAlias,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[NetImage(image,width:256,height:144),Padding(padding:const EdgeInsets.all(12),child:Text(title,style:const TextStyle(color:K.ink,fontSize:16,height:1.35,fontWeight:FontWeight.w700))) ])); }
+class NewsRow extends StatelessWidget { const NewsRow({super.key,required this.article,required this.articles}); final ArticleData article; final List<ArticleData> articles; @override Widget build(BuildContext context)=>InkWell(onTap:()=>openArticle(context,article,articles),child:Row(children:[ClipRRect(borderRadius:BorderRadius.circular(8),child:NetImage(article.image,width:96,height:96)),const SizedBox(width:16),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(article.category,style:const TextStyle(color:K.limeText,fontSize:10,fontWeight:FontWeight.w700,letterSpacing:.6)),const SizedBox(height:4),Text(article.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:K.ink,fontSize:16,height:1.35,fontWeight:FontWeight.w700)),const SizedBox(height:4),Text('${article.date} • ${article.readTime}',style:const TextStyle(color:K.body,fontSize:11))]))])); }
+class TrendCard extends StatelessWidget { const TrendCard({super.key,required this.article,required this.articles}); final ArticleData article; final List<ArticleData> articles; @override Widget build(BuildContext context)=>InkWell(onTap:()=>openArticle(context,article,articles),borderRadius:BorderRadius.circular(12),child:Container(width:256,decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(12),boxShadow:const [BoxShadow(color:Color(0x10000000),blurRadius:3)]),clipBehavior:Clip.antiAlias,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[NetImage(article.image,width:256,height:130),Padding(padding:const EdgeInsets.symmetric(horizontal:12, vertical:10),child:Text(article.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:K.ink,fontSize:16,height:1.35,fontWeight:FontWeight.w700))) ]))); }
 
 class NewsScreen extends StatelessWidget {
   const NewsScreen({super.key, required this.articles});
   final List<ArticleData> articles;
-  @override Widget build(BuildContext context)=>SingleChildScrollView(padding:const EdgeInsets.only(bottom:32),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+  @override
+  Widget build(BuildContext context) {
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+    return SingleChildScrollView(padding: EdgeInsets.only(bottom: 32 + safeBottom + 72), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     SizedBox(height:58,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16,vertical:8),children:[chip('All',true),chip('Pakistan'),chip('International'),chip('Domestic'),chip('PSL')])),
-    Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:GestureDetector(onTap:()=>openArticle(context,articles[0]),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Stack(children:[NetImage(articles[0].image,width:double.infinity,height:202),Container(height:202,decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Color(0xD9001C10)]))),Positioned(left:18,right:18,bottom:18,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(articles[0].title,style:const TextStyle(color:Colors.white,fontSize:23,height:1.15,fontWeight:FontWeight.w700),maxLines:2,overflow:TextOverflow.ellipsis),const SizedBox(height:8),Text(articles[0].summary,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,fontSize:13))]))])))),
+    Padding(padding:const EdgeInsets.symmetric(horizontal:16),child:GestureDetector(onTap:()=>openArticle(context,articles[0],articles),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Stack(children:[NetImage(articles[0].image,width:double.infinity,height:202),Container(height:202,decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Color(0xD9001C10)]))),Positioned(left:18,right:18,bottom:18,child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(articles[0].title,style:const TextStyle(color:Colors.white,fontSize:23,height:1.15,fontWeight:FontWeight.w700),maxLines:2,overflow:TextOverflow.ellipsis),const SizedBox(height:8),Text(articles[0].summary,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,fontSize:13))]))])))),
     const SectionTitle(title:'Latest News',action:'VIEW ALL ›'),
-    for(var article in articles) NewsListCard(article:article),
+    for(var article in articles) NewsListCard(article:article, articles: articles),
     const SectionTitle(title:'Trending Stories',action:''),
-    SizedBox(height:150,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16),children:[RealTrendWide(article:articles[1]),const SizedBox(width:12),RealTrendWide(article:articles[3])]))
+    SizedBox(height:150,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:16),children:[for (final article in articles.skip(1)) ...[RealTrendWide(article: article, articles: articles), const SizedBox(width: 12)]]))
   ]));
+  }
   static Widget chip(String t,[bool active=false])=>Container(margin:const EdgeInsets.only(right:8),padding:const EdgeInsets.symmetric(horizontal:22),alignment:Alignment.center,decoration:BoxDecoration(color:active?K.lime:const Color(0xFFF0F1F0),border:active?null:Border.all(color:const Color(0xFFCBD0CB)),borderRadius:BorderRadius.circular(22)),child:Text(t,style:TextStyle(color:active?K.limeText:K.body,fontSize:12,fontWeight:FontWeight.w600)));
 }
-class NewsListCard extends StatelessWidget { const NewsListCard({super.key,required this.article}); final ArticleData article; @override Widget build(BuildContext context)=>InkWell(onTap:()=>openArticle(context,article),child:Container(margin:const EdgeInsets.fromLTRB(16,0,16,16),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(12),boxShadow:const [BoxShadow(color:Color(0x10000000),blurRadius:7,offset:Offset(0,3))]),child:Row(children:[ClipRRect(borderRadius:BorderRadius.circular(8),child:NetImage(article.image,width:88,height:88)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(article.category,style:const TextStyle(color:K.green,fontSize:10,letterSpacing:1)),const SizedBox(height:5),Text(article.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:K.ink,fontSize:15,height:1.25,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${article.date} • ${article.readTime}',style:const TextStyle(color:K.body,fontSize:10))])),const Icon(Icons.arrow_forward,color:K.green)]))); }
+class NewsListCard extends StatelessWidget { const NewsListCard({super.key,required this.article,required this.articles}); final ArticleData article; final List<ArticleData> articles; @override Widget build(BuildContext context)=>InkWell(onTap:()=>openArticle(context,article,articles),child:Container(margin:const EdgeInsets.fromLTRB(16,0,16,16),padding:const EdgeInsets.all(12),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(12),boxShadow:const [BoxShadow(color:Color(0x10000000),blurRadius:7,offset:Offset(0,3))]),child:Row(children:[ClipRRect(borderRadius:BorderRadius.circular(8),child:NetImage(article.image,width:88,height:88)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(article.category,style:const TextStyle(color:K.green,fontSize:10,letterSpacing:1)),const SizedBox(height:5),Text(article.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:K.ink,fontSize:15,height:1.25,fontWeight:FontWeight.w700)),const SizedBox(height:8),Text('${article.date} • ${article.readTime}',style:const TextStyle(color:K.body,fontSize:10))])),const Icon(Icons.arrow_forward,color:K.green)]))); }
 class TrendWide extends StatelessWidget { const TrendWide({super.key,required this.image,required this.title}); final String image,title; @override Widget build(BuildContext context)=>ClipRRect(borderRadius:BorderRadius.circular(14),child:Stack(children:[NetImage(image,width:255,height:150),Container(width:255,height:150,decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Color(0xCC001C10)]))),Positioned(left:12,bottom:12,child:Text(title,style:const TextStyle(color:Colors.white,fontSize:15,fontWeight:FontWeight.w700))) ])); }
 
-void openArticle(BuildContext context, ArticleData article) {
-  Navigator.push(context, MaterialPageRoute(builder: (_) => FigmaArticleScreen(article: article)));
+void openArticle(BuildContext context, ArticleData article, List<ArticleData> articles) {
+  Navigator.push(context, MaterialPageRoute(builder: (_) => FigmaArticleScreen(article: article, articles: articles)));
 }
 
 class RealTrendWide extends StatelessWidget {
-  const RealTrendWide({super.key, required this.article});
+  const RealTrendWide({super.key, required this.article, required this.articles});
   final ArticleData article;
+  final List<ArticleData> articles;
   @override
   Widget build(BuildContext context) => InkWell(
-        onTap: () => openArticle(context, article),
+        onTap: () => openArticle(context, article, articles),
         borderRadius: BorderRadius.circular(14),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
@@ -325,12 +442,13 @@ class RealTrendWide extends StatelessWidget {
 }
 
 class FigmaArticleScreen extends StatelessWidget {
-  const FigmaArticleScreen({super.key, required this.article});
+  const FigmaArticleScreen({super.key, required this.article, required this.articles});
   final ArticleData article;
+  final List<ArticleData> articles;
 
   @override
   Widget build(BuildContext context) {
-    final related = realArticles.where((item) => item.title != article.title).take(2).toList();
+    final related = articles.where((item) => item.id != article.id).take(3).toList();
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     return Scaffold(
       backgroundColor: K.bg,
@@ -407,7 +525,7 @@ class FigmaArticleScreen extends StatelessWidget {
           const SizedBox(height: 44),
           const Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Continue Reading', style: TextStyle(color: K.dark, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -.55)), SizedBox(width: 48, child: Divider(color: Color(0x5500341C), thickness: 2))]),
           const SizedBox(height: 32),
-          for (final item in related) ...[_RelatedArticleCard(article: item), const SizedBox(height: 32)],
+          for (final item in related) ...[_RelatedArticleCard(article: item, articles: articles), const SizedBox(height: 32)],
           const SizedBox(height: 8),
           SafeArea(
             top: false,
@@ -428,11 +546,12 @@ class FigmaArticleScreen extends StatelessWidget {
 }
 
 class _RelatedArticleCard extends StatelessWidget {
-  const _RelatedArticleCard({required this.article});
+  const _RelatedArticleCard({required this.article, required this.articles});
   final ArticleData article;
+  final List<ArticleData> articles;
   @override
   Widget build(BuildContext context) => InkWell(
-        onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => FigmaArticleScreen(article: article))),
+        onTap: () => Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => FigmaArticleScreen(article: article, articles: articles))),
         borderRadius: BorderRadius.circular(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(16), boxShadow: const [BoxShadow(color: Color(0x18000000), blurRadius: 15, offset: Offset(0, 8))]), clipBehavior: Clip.antiAlias, child: NetImage(article.image, width: double.infinity, height: 191)),
@@ -504,10 +623,13 @@ class ArticleScreen extends StatelessWidget {
     const ArticleText('The hallmark of Babar’s batting is his incredible ability to find the gaps with surgical precision. Unlike the frantic pace of modern T20I batting, Babar brings a sense of calm to the crease. Analysts point to his weight transfer as the secret sauce; whether facing a 150kph thunderbolt or a subtle drifter, his head remains still, eyes level, and his bat flows through a perfect arc.'),const SizedBox(height:28),
     Container(width:double.infinity,padding:const EdgeInsets.all(28),decoration:BoxDecoration(color:const Color(0xFFF6F8F5),borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFDDE7DD))),child:const Column(children:[Text('AVERAGE IN WINNING CAUSES',style:TextStyle(color:K.green,fontSize:11,fontWeight:FontWeight.w700,letterSpacing:1)),SizedBox(height:12),Text('64.28',style:TextStyle(color:K.dark,fontSize:46,fontWeight:FontWeight.w800)),Text('Highest among active top-order batsmen',textAlign:TextAlign.center,style:TextStyle(color:K.body,fontSize:12))])),const SizedBox(height:28),
     Container(padding:const EdgeInsets.all(24),decoration:const BoxDecoration(border:Border(left:BorderSide(color:K.lime,width:4))),child:const Text('Leadership in Pakistan cricket is often a poisoned chalice, yet Babar has worn it with a quiet stoicism.\n\n— THE EDITORIAL BOARD',style:TextStyle(color:K.dark,fontSize:20,height:1.45,fontWeight:FontWeight.w700,fontStyle:FontStyle.italic))),const ArticleHeading('Continue Reading'),
-    const TrendCard(image:'https://www.figma.com/api/mcp/asset/b117a5b1-20f3-45e4-978f-de4d1bfa313a',title:"Shaheen's Opening Spells: A Nightmare for Top Orders"),const SizedBox(height:24),
+    const SizedBox(height:24),
     FilledButton(style:FilledButton.styleFrom(backgroundColor:K.dark,minimumSize:const Size(double.infinity,56),shape:RoundedRectangleBorder(borderRadius:BorderRadius.circular(10))),onPressed:()=>Navigator.pop(context),child:const Text('‹  Share Story'))
   ])));
 }
 class ArticleHeading extends StatelessWidget { const ArticleHeading(this.text,{super.key}); final String text; @override Widget build(BuildContext context)=>Padding(padding:const EdgeInsets.only(top:30,bottom:16),child:Text(text,style:const TextStyle(color:K.dark,fontSize:27,fontWeight:FontWeight.w800))); }
 class ArticleText extends StatelessWidget { const ArticleText(this.text,{super.key}); final String text; @override Widget build(BuildContext context)=>Text(text,style:const TextStyle(color:K.ink,fontSize:16,height:1.75)); }
 class PlaceholderScreen extends StatelessWidget { const PlaceholderScreen({super.key}); @override Widget build(BuildContext context)=>const Center(child:Text('Coming soon',style:TextStyle(color:K.dark,fontSize:22,fontWeight:FontWeight.w700))); }
+
+
+

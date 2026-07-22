@@ -1,6 +1,24 @@
 # Kricket.pk Mock News API Contract
 
-The Flutter app currently consumes `MockNewsApi`, an in-process implementation of the same contract expected from the backend. It simulates network latency, JSON serialization, list/detail endpoints, and HTTP-style errors.
+The Flutter app now calls the live Kricket endpoint first and uses `MockNewsApi` only when the device cannot reach it. The mock implementation retains the same interface for offline development.
+
+## Live Kricket endpoint in the app
+
+`GET https://kricket.pk/backend/api/gettoparticles?Limit={limit}&Start={start}`
+
+The response is mapped as follows:
+
+| Backend field | App field |
+| --- | --- |
+| `ArticleId` | `id` |
+| `Title` | `category` |
+| `Heading` | `title` |
+| `Content` | `summary` and article body |
+| `Writer` | `source` |
+| `Dated` | `published_at` |
+| `Image` | `https://kricket.pk/images/{Image}` |
+
+The current endpoint supplies article-list content only. A future full-detail endpoint can be added to the same `NewsApi` interface without changing the screens.
 
 ## Base path
 

@@ -55,16 +55,35 @@ class ArticleData {
     final imageUrl = imagePath.isEmpty
         ? 'assets/images/cricket_stadium.png'
         : 'https://kricket.pk/images/${imagePath.replaceFirst(RegExp(r'^/+'), '')}';
-    final content = _cleanText(json['Content'] as String? ?? '');
+    
+    // Get the full article content and clean HTML
+    final rawContent = json['Content'] as String? ?? '';
+    final cleanedContent = _cleanText(rawContent);
+    
+    // Split by paragraph breaks (multiple newlines or by </p><p> patterns)
+    List<String> paragraphs = [];
+    if (cleanedContent.isEmpty) {
+      paragraphs = ['Article content is not available yet.'];
+    } else {
+      paragraphs = cleanedContent
+          .split(RegExp(r'\n+'))
+          .map((p) => p.trim())
+          .where((p) => p.isNotEmpty)
+          .toList();
+    }
+    
+    // Use first paragraph as summary
+    final summary = paragraphs.isNotEmpty ? paragraphs.first : cleanedContent;
+    
     return ArticleData(
       id: '${json['ArticleId']}',
       category: _cleanText(json['Title'] as String? ?? 'CRICKET NEWS').toUpperCase(),
       title: _cleanText(json['Heading'] as String? ?? 'Kricket.pk article'),
-      summary: content,
+      summary: summary,
       image: imageUrl,
       date: _formatBackendDate(json['Dated'] as String?),
       readTime: '3 min read',
-      body: [content.isEmpty ? 'Article content is not available yet.' : content],
+      body: paragraphs,
       source: _cleanText(json['Writer'] as String? ?? 'kricket.pk'),
     );
   }
@@ -92,13 +111,20 @@ String _formatBackendDate(String? raw) {
 String _cleanText(String? raw) {
   if (raw == null) return '';
   var s = raw.trim();
+  // Remove HTML tags
+  s = s.replaceAll(RegExp(r'<[^>]*>'), '');
+  // Fix encoding issues
   s = s.replaceAll('â€¢', '•');
-  s = s.replaceAll('â€™', '’');
-  s = s.replaceAll('â€œ', '“');
-  s = s.replaceAll('â€', '”');
-  s = s.replaceAll('â€”', '—');
+  s = s.replaceAll("â€™", "'");
+  s = s.replaceAll('â€œ', '"');
+  s = s.replaceAll('â€', '"');
+  s = s.replaceAll('â€"', '—');
   s = s.replaceAll('â€º', '›');
-  return s;
+  // Decode HTML entities
+  s = s.replaceAll('&nbsp;', ' ');
+  s = s.replaceAll('&quot;', '"');
+  s = s.replaceAll('&amp;', '&');
+  return s.trim();
 }
 
 const realArticles = <ArticleData>[
@@ -231,11 +257,50 @@ class KricketNewsApi implements NewsApi {
 
   @override
   Future<ArticleData> getArticle(String id) async {
-    final articles = await getArticles(limit: 100);
-    return articles.firstWhere(
-      (article) => article.id == id,
-      orElse: () => throw const NewsApiException(404, 'Article not found in the loaded page'),
-    );
+    // Try different parameter formats the backend might accept
+    final possibleUris = [
+      Uri.parse('$_baseUri/getarticlebyid').replace(queryParameters: {'id': id}),
+      Uri.parse('$_baseUri/getarticlebyid').replace(queryParameters: {'Id': id}),
+      Uri.parse('$_baseUri/getarticlebyid').replace(queryParameters: {'ArticleId': id}),
+    ];
+    
+    final client = _client ?? http.Client();
+    try {
+      for (var uri in possibleUris) {
+        print('DEBUG: Trying URI: $uri');
+        final response = await client.get(uri).timeout(const Duration(seconds: 15));
+        print('DEBUG: Response status: ${response.statusCode}');
+        print('DEBUG: Full response body: ${response.body}');
+        
+        if (response.statusCode != 200) continue;
+        
+        final payload = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        print('DEBUG: Payload status: ${payload['status']}');
+        
+        if (payload['status'] != true) continue;
+        
+        final receivedList = payload['received_data'] as List<dynamic>?;
+        print('DEBUG: Received list length: ${receivedList?.length}');
+        
+        if (receivedList != null && receivedList.isNotEmpty) {
+          final received = receivedList.first as Map<String, dynamic>;
+          print('DEBUG: Successfully loaded article from: $uri');
+          return ArticleData.fromBackendJson(received);
+        }
+      }
+      
+      // If none of the parameter formats worked, throw error
+      print('DEBUG: Article not found with any parameter format');
+      throw const NewsApiException(404, 'Article not found');
+    } on NewsApiException {
+      rethrow;
+    } catch (e, st) {
+      print('DEBUG: Error fetching article: $e');
+      print('DEBUG: Stack trace: $st');
+      throw const NewsApiException(503, 'Kricket article service is unavailable');
+    } finally {
+      if (_client == null) client.close();
+    }
   }
 }
 
@@ -441,14 +506,26 @@ class RealTrendWide extends StatelessWidget {
       );
 }
 
-class FigmaArticleScreen extends StatelessWidget {
+class FigmaArticleScreen extends StatefulWidget {
   const FigmaArticleScreen({super.key, required this.article, required this.articles});
   final ArticleData article;
   final List<ArticleData> articles;
 
   @override
+  State<FigmaArticleScreen> createState() => _FigmaArticleScreenState();
+}
+
+class _FigmaArticleScreenState extends State<FigmaArticleScreen> {
+  late final Future<ArticleData> fullArticle;
+
+  @override
+  void initState() {
+    super.initState();
+    fullArticle = const KricketNewsApi().getArticle(widget.article.id);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final related = articles.where((item) => item.id != article.id).take(3).toList();
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     return Scaffold(
       backgroundColor: K.bg,
@@ -464,7 +541,25 @@ class FigmaArticleScreen extends StatelessWidget {
         title: const Text('Kricket.pk', style: TextStyle(color: K.dark, fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: -.4)),
         actions: const [Icon(Icons.bookmark_border, size: 20), SizedBox(width: 8), Icon(Icons.share_outlined, size: 20), SizedBox(width: 16)],
       ),
-      body: SingleChildScrollView(
+      body: FutureBuilder<ArticleData>(
+        future: fullArticle,
+        builder: (context, snapshot) {
+          // Use full article if loaded, otherwise fall back to preview
+          final ArticleData article;
+          if (snapshot.hasData) {
+            article = snapshot.data!;
+          } else if (snapshot.hasError) {
+            // If full article fails to load, use preview as fallback
+            print('DEBUG: Failed to load full article, using preview. Error: ${snapshot.error}');
+            article = widget.article;
+          } else {
+            // Show loading state with preview
+            return const Center(child: CircularProgressIndicator(color: K.green));
+          }
+          
+          final related = widget.articles.where((item) => item.id != article.id).take(3).toList();
+          
+          return SingleChildScrollView(
         padding: EdgeInsets.fromLTRB(25, 40, 25, 56 + safeBottom),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
@@ -473,8 +568,11 @@ class FigmaArticleScreen extends StatelessWidget {
           ]),
           const SizedBox(height: 23),
           Text(article.title, style: const TextStyle(color: K.dark, fontSize: 36, height: 1.1, fontWeight: FontWeight.w800, letterSpacing: -.9)),
-          const SizedBox(height: 24),
-          Container(width: double.infinity, padding: const EdgeInsets.only(left: 24), decoration: const BoxDecoration(border: Border(left: BorderSide(color: Color(0xFF92D5A9), width: 4))), child: Text(article.summary, style: const TextStyle(color: K.body, fontSize: 20, height: 1.62, fontWeight: FontWeight.w500, fontStyle: FontStyle.italic))),
+          const SizedBox(height: 40),
+          const SizedBox(height: 40),
+          Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), boxShadow: const [BoxShadow(color: Color(0x1A00341C), blurRadius: 28, offset: Offset(0, 16))]), clipBehavior: Clip.antiAlias, child: NetImage(article.image, width: double.infinity, height: 320)),
+          const SizedBox(height: 16),
+          Container(width: double.infinity, padding: const EdgeInsets.only(top: 16), decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0x80E2E2E2)))), child: const Text('Editorial cricket image • Kricket.pk', textAlign: TextAlign.center, style: TextStyle(color: K.body, fontSize: 13, height: 1.38, fontStyle: FontStyle.italic))),
           const SizedBox(height: 24),
           Container(
             width: double.infinity,
@@ -487,12 +585,7 @@ class FigmaArticleScreen extends StatelessWidget {
             ]),
           ),
           const SizedBox(height: 40),
-          Container(decoration: BoxDecoration(borderRadius: BorderRadius.circular(24), boxShadow: const [BoxShadow(color: Color(0x1A00341C), blurRadius: 28, offset: Offset(0, 16))]), clipBehavior: Clip.antiAlias, child: NetImage(article.image, width: double.infinity, height: 320)),
-          const SizedBox(height: 16),
-          Container(width: double.infinity, padding: const EdgeInsets.only(top: 16), decoration: const BoxDecoration(border: Border(top: BorderSide(color: Color(0x80E2E2E2)))), child: const Text('Editorial cricket image • Kricket.pk', textAlign: TextAlign.center, style: TextStyle(color: K.body, fontSize: 13, height: 1.38, fontStyle: FontStyle.italic))),
-          const SizedBox(height: 40),
           for (var i = 0; i < article.body.length; i++) ...[
-            if (i == 1) const Padding(padding: EdgeInsets.only(top: 12, bottom: 18), child: Text('What You Need to Know', style: TextStyle(color: K.dark, fontSize: 26, height: 1.4, fontWeight: FontWeight.w800, letterSpacing: -.65))),
             Text(article.body[i], style: const TextStyle(color: K.ink, fontSize: 18, height: 1.8)),
             const SizedBox(height: 23),
           ],
@@ -516,7 +609,7 @@ class FigmaArticleScreen extends StatelessWidget {
           const SizedBox(height: 48),
           Container(padding: const EdgeInsets.fromLTRB(32, 42, 24, 16), child: Stack(clipBehavior: Clip.none, children: [
             const Positioned(left: -32, top: -42, child: Text('“', style: TextStyle(color: Color(0x1A00341C), fontSize: 80, fontFamily: 'serif'))),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(article.summary, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w700, fontStyle: FontStyle.italic, letterSpacing: -.6)), const SizedBox(height: 28), Text('— ${article.source.toUpperCase()}', style: const TextStyle(color: K.body, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.2))]),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(article.title, style: const TextStyle(color: K.dark, fontSize: 24, height: 1.25, fontWeight: FontWeight.w700, fontStyle: FontStyle.italic, letterSpacing: -.6)), const SizedBox(height: 28), Text('— ${article.source.toUpperCase()}', style: const TextStyle(color: K.body, fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1.2))]),
           ])),
           const SizedBox(height: 42),
           Wrap(spacing: 10, runSpacing: 10, children: [for (final tag in _tagsFor(article)) Container(padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 9), decoration: BoxDecoration(color: const Color(0xFFF3F3F4), border: Border.all(color: const Color(0xFFE2E2E2)), borderRadius: BorderRadius.circular(12)), child: Text(tag, style: const TextStyle(color: K.dark, fontSize: 12, fontWeight: FontWeight.w700)))]),
@@ -525,7 +618,7 @@ class FigmaArticleScreen extends StatelessWidget {
           const SizedBox(height: 44),
           const Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('Continue Reading', style: TextStyle(color: K.dark, fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -.55)), SizedBox(width: 48, child: Divider(color: Color(0x5500341C), thickness: 2))]),
           const SizedBox(height: 32),
-          for (final item in related) ...[_RelatedArticleCard(article: item, articles: articles), const SizedBox(height: 32)],
+          for (final item in related) ...[_RelatedArticleCard(article: item, articles: widget.articles), const SizedBox(height: 32)],
           const SizedBox(height: 8),
           SafeArea(
             top: false,
@@ -537,7 +630,9 @@ class FigmaArticleScreen extends StatelessWidget {
               label: const Text('Back to News', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
             ),
           ),
-        ]),
+            ]),
+          );
+        },
       ),
     );
   }

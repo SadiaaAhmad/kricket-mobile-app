@@ -12055,6 +12055,52 @@ class _CommentaryTabWidget extends StatefulWidget {
 
 class _CommentaryTabWidgetState extends State<_CommentaryTabWidget> {
   int _selectedInnings = 1;
+  final ScrollController _scrollController = ScrollController();
+  int _visibleOversCount = 6; // Initial batch of 6 overs
+  bool _isLoadingMore = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 250) {
+      _loadNextOversBatch();
+    }
+  }
+
+  void _loadNextOversBatch() {
+    if (_isLoadingMore) return;
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    // Load next batch of 6 overs on scroll
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() {
+          _visibleOversCount += 6;
+          _isLoadingMore = false;
+        });
+      }
+    });
+  }
+
+  Future<void> _handleLiveRefresh() async {
+    setState(() {
+      _visibleOversCount = 6;
+    });
+    await Future.delayed(const Duration(milliseconds: 800));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -12067,26 +12113,31 @@ class _CommentaryTabWidgetState extends State<_CommentaryTabWidget> {
 
         final allOvers = snapshot.data!;
         if (allOvers.isEmpty) {
-          return SingleChildScrollView(
-            padding: const EdgeInsets.only(left: 24, right: 24, top: 40, bottom: 64),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.subtitles_off_outlined, color: Color(0xFFB0BEB3), size: 48),
-                  const SizedBox(height: 14),
-                  Text(
-                    'No commentary overs found for Match #${widget.matchNo}',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: K.dark, fontSize: 15, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Ball-by-ball commentary is updated in real-time during live match broadcasts.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: K.body, fontSize: 12),
-                  ),
-                ],
+          return RefreshIndicator(
+            color: K.green,
+            onRefresh: _handleLiveRefresh,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.only(left: 24, right: 24, top: 40, bottom: 64),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.subtitles_off_outlined, color: Color(0xFFB0BEB3), size: 48),
+                    const SizedBox(height: 14),
+                    Text(
+                      'No commentary overs found for Match #${widget.matchNo}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: K.dark, fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Ball-by-ball commentary is updated in real-time during live match broadcasts.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: K.body, fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
             ),
           );
@@ -12095,62 +12146,129 @@ class _CommentaryTabWidgetState extends State<_CommentaryTabWidget> {
         final innings1Overs = allOvers.where((o) => o.innings == 1).toList()..sort((a, b) => a.over.compareTo(b.over));
         final innings2Overs = allOvers.where((o) => o.innings == 2).toList()..sort((a, b) => a.over.compareTo(b.over));
 
-        final currentOvers = _selectedInnings == 1
+        final allCurrentOvers = _selectedInnings == 1
             ? (innings1Overs.isNotEmpty ? innings1Overs : allOvers)
             : (innings2Overs.isNotEmpty ? innings2Overs : allOvers);
 
-        return SingleChildScrollView(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 64),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Innings Selector Dropdown (Matching Screenshot 1)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: const Color(0xFF276749)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int>(
-                        value: _selectedInnings,
-                        isDense: true,
-                        icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF276749)),
-                        items: [
-                          DropdownMenuItem(
-                            value: 1,
-                            child: Text(
-                              innings1Overs.isNotEmpty ? 'Gujarat Titans Innings (${innings1Overs.last.score}/${innings1Overs.last.wicket})' : '1st Innings',
-                              style: const TextStyle(color: K.dark, fontSize: 13, fontWeight: FontWeight.w700),
-                            ),
+        // Paginated overs subset loaded progressively on scroll
+        final displayedOvers = allCurrentOvers.take(_visibleOversCount).toList();
+        final hasMoreOvers = _visibleOversCount < allCurrentOvers.length;
+
+        return RefreshIndicator(
+          color: K.green,
+          onRefresh: _handleLiveRefresh,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 64),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Innings Selector Dropdown & Live Indicator Bar
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Live Status Pill
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FFF4),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFC6F6D5)),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.circle, size: 8, color: Color(0xFFE53E3E)),
+                          SizedBox(width: 6),
+                          Text(
+                            'LIVE AUTO-SYNC',
+                            style: TextStyle(color: K.green, fontSize: 11, fontWeight: FontWeight.w900),
                           ),
-                          if (innings2Overs.isNotEmpty)
+                        ],
+                      ),
+                    ),
+
+                    // Innings Selector Dropdown
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: K.green, width: 1.5),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x0A00341C),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<int>(
+                          value: _selectedInnings,
+                          isDense: true,
+                          dropdownColor: Colors.white,
+                          icon: const Icon(Icons.keyboard_arrow_down, color: K.green),
+                          items: [
                             DropdownMenuItem(
-                              value: 2,
+                              value: 1,
                               child: Text(
-                                'Royal Challengers Bengaluru Innings (${innings2Overs.last.score}/${innings2Overs.last.wicket})',
+                                innings1Overs.isNotEmpty ? 'GT Innings (${innings1Overs.last.score}/${innings1Overs.last.wicket})' : '1st Innings',
                                 style: const TextStyle(color: K.dark, fontSize: 13, fontWeight: FontWeight.w700),
                               ),
                             ),
+                            if (innings2Overs.isNotEmpty)
+                              DropdownMenuItem(
+                                value: 2,
+                                child: Text(
+                                  'RCB Innings (${innings2Overs.last.score}/${innings2Overs.last.wicket})',
+                                  style: const TextStyle(color: K.dark, fontSize: 13, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              setState(() {
+                                _selectedInnings = val;
+                                _visibleOversCount = 6; // Reset pagination for selected innings
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Overs List (Loaded on scroll)
+                for (final overData in displayedOvers)
+                  _buildOverWebStyleCard(overData),
+
+                // Loading Indicator at bottom when scrolling to load next overs
+                if (hasMoreOvers || _isLoadingMore)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2.2, color: K.green),
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'Loading next overs...',
+                            style: TextStyle(color: K.green, fontSize: 13, fontWeight: FontWeight.w800),
+                          ),
                         ],
-                        onChanged: (val) {
-                          if (val != null) setState(() => _selectedInnings = val);
-                        },
                       ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // Overs List
-              for (final overData in currentOvers)
-                _buildOverWebStyleCard(overData),
-            ],
+              ],
+            ),
           ),
         );
       },

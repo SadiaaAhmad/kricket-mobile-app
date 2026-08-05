@@ -201,7 +201,7 @@ class MatchCard extends StatelessWidget {
 }
 
 class TeamAvatar extends StatelessWidget {
-  const TeamAvatar({required this.name, this.size = 36});
+  const TeamAvatar({super.key, required this.name, this.size = 36});
   final String name;
   final double size;
 

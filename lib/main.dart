@@ -5,6 +5,7 @@ import 'package:kricket_pk/services/news_api.dart';
 import 'package:kricket_pk/widgets/api_error_view.dart';
 import 'package:kricket_pk/screens/home_screen.dart';
 import 'package:kricket_pk/screens/matches_screen.dart';
+import 'package:kricket_pk/screens/tournaments_screen.dart';
 import 'package:kricket_pk/screens/news_screen.dart';
 import 'package:kricket_pk/screens/placeholder_screen.dart';
 
@@ -39,12 +40,12 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    articles = const KricketNewsApi().getArticles(limit: 10, start: 0);
+    articles = const FallbackNewsApi(KricketNewsApi(), MockNewsApi()).getArticles(limit: 10, start: 0);
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: page < 2 ? const KricketBar() : null,
+        appBar: page < 4 ? const KricketBar() : null,
         body: FutureBuilder<List<ArticleData>>(
           future: articles,
           builder: (context, snapshot) {
@@ -59,7 +60,7 @@ class _AppShellState extends State<AppShell> {
                 ),
                 NewsScreen(articles: snapshot.data!),
                 const MatchesScreen(),
-                const PlaceholderScreen(),
+                const TournamentsScreen(),
                 const PlaceholderScreen(),
               ],
             );
@@ -89,15 +90,56 @@ class KricketNav extends StatelessWidget {
   const KricketNav({super.key, required this.index, required this.onTap});
   final int index;
   final ValueChanged<int> onTap;
-  static const items = [(Icons.home, 'Home'), (Icons.newspaper, 'News'), (Icons.sports_cricket, 'Matches'), (Icons.groups, 'Players'), (Icons.person_outline, 'Profile')];
+  static const items = [
+    (Icons.home, 'Home'),
+    (Icons.newspaper, 'News'),
+    (Icons.sports_cricket, 'Matches'),
+    (Icons.emoji_events, 'Tournaments'),
+    (Icons.groups, 'Players'),
+  ];
   @override
   Widget build(BuildContext context) => SafeArea(
         top: false,
         minimum: const EdgeInsets.only(bottom: 10),
         child: Container(
           height: 72,
-          decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFBFC9BF))), boxShadow: [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, -4))]),
-          child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [for (var i = 0; i < items.length; i++) InkWell(onTap: () => onTap(i), borderRadius: BorderRadius.circular(12), child: AnimatedContainer(duration: const Duration(milliseconds: 180), padding: EdgeInsets.symmetric(horizontal: i == index ? 16 : 9, vertical: 5), decoration: BoxDecoration(color: i == index ? K.lime : Colors.transparent, borderRadius: BorderRadius.circular(12)), child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(items[i].$1, size: 20, color: i == index ? K.limeText : K.body), const SizedBox(height: 2), Text(items[i].$2, style: TextStyle(fontSize: 11, color: i == index ? K.limeText : K.body))])))]),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Color(0xFFBFC9BF))),
+            boxShadow: [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, -4))],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              for (var i = 0; i < items.length; i++)
+                InkWell(
+                  onTap: () => onTap(i),
+                  borderRadius: BorderRadius.circular(12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    padding: EdgeInsets.symmetric(horizontal: i == index ? 16 : 9, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: i == index ? K.lime : Colors.transparent,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(items[i].$1, size: 20, color: i == index ? K.limeText : K.body),
+                        const SizedBox(height: 2),
+                        Text(
+                          items[i].$2,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: i == index ? K.limeText : K.body,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       );
 }

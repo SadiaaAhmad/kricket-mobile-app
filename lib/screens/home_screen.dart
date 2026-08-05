@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:kricket_pk/constants/app_theme.dart';
 import 'package:kricket_pk/models/article_model.dart';
+import 'package:kricket_pk/models/match_model.dart';
+import 'package:kricket_pk/services/matches_api.dart';
+import 'package:kricket_pk/screens/match_detail_screen.dart';
 import 'package:kricket_pk/widgets/net_image.dart';
 import 'package:kricket_pk/widgets/section_title.dart';
 import 'package:kricket_pk/widgets/news_widgets.dart';
@@ -41,28 +44,104 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 24),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Container(
-            padding: const EdgeInsets.all(17),
-            decoration: BoxDecoration(color: K.green, borderRadius: BorderRadius.circular(12), boxShadow: const [BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, 4))]),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          child: FutureBuilder<MatchesResponse>(
+            future: MatchesApi().getFixtures(limit: 1, page: 1),
+            builder: (context, snapshot) {
+              final match = snapshot.data?.matches.firstOrNull;
+              final team1 = match?.team1Name ?? 'Pakistan';
+              final team2 = match?.team2Name ?? 'West Indies';
+              final format = match?.format ?? 'T20';
+              final ground = match?.groundName ?? 'Gaddafi Stadium, Lahore';
+
+              return InkWell(
+                onTap: () {
+                  if (match != null) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MatchDetailScreen(matchNo: match.matchNo, initialMatch: match),
+                      ),
+                    );
+                  } else {
+                    widget.onTabChange?.call(2);
+                  }
+                },
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  padding: const EdgeInsets.all(17),
+                  decoration: BoxDecoration(
+                    color: K.green,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x14004D2C), blurRadius: 10, offset: Offset(0, 4)),
+                    ],
+                  ),
+                  child: Row(
                     children: [
-                      Text('LIVE - PAK VS AUS', style: TextStyle(color: Color(0xFF7BBD93), fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: .6)),
-                      SizedBox(height: 4),
-                      Text.rich(TextSpan(children: [TextSpan(text: 'PAK 245/4 ', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)), TextSpan(text: '(42.3 ov)', style: TextStyle(fontSize: 12, color: Color(0x997BBD93)))]), style: TextStyle(color: Color(0xFF7BBD93))),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: const BoxDecoration(color: K.lime, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    'FEATURED MATCH — ${team1.toUpperCase()} VS ${team2.toUpperCase()}',
+                                    style: const TextStyle(color: Color(0xFF7BBD93), fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: .6),
+                                    overflow: TextOverflow.ellipsis,
+                                    maxLines: 1,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '$team1 vs $team2',
+                              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$format • $ground',
+                              style: const TextStyle(color: Color(0xCC7BBD93), fontSize: 12, fontWeight: FontWeight.w600),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: K.lime,
+                          foregroundColor: K.limeText,
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                        ),
+                        onPressed: () {
+                          if (match != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => MatchDetailScreen(matchNo: match.matchNo, initialMatch: match),
+                              ),
+                            );
+                          } else {
+                            widget.onTabChange?.call(2);
+                          }
+                        },
+                        child: const Text('VIEW MATCH', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+                      ),
                     ],
                   ),
                 ),
-                FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: K.lime, foregroundColor: K.limeText, padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8)),
-                  onPressed: () => widget.onTabChange?.call(2),
-                  child: const Text('VIEW SCORE', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                ),
-              ],
-            ),
+              );
+            },
           ),
         ),
         const SizedBox(height: 24),
@@ -128,6 +207,62 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+
+        // Widget leading to News Page when expanded
+        if (_showAllNews) ...[
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: InkWell(
+              onTap: () => widget.onTabChange?.call(1),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: K.dark,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: K.green, width: 1.5),
+                  boxShadow: const [
+                    BoxShadow(color: Color(0x1A004D2C), blurRadius: 8, offset: Offset(0, 4)),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF003820),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.newspaper, color: K.lime, size: 22),
+                    ),
+                    const SizedBox(width: 14),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Explore All News Articles',
+                            style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w800),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Browse full archive of 3,500+ news & analysis',
+                            style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.arrow_forward_ios, color: K.lime, size: 16),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
         SectionTitle(
           title: 'Trending Stories',
           action: widget.onTabChange != null ? 'SEE ALL' : '',
@@ -157,8 +292,8 @@ class QuickActions extends StatelessWidget {
     const data = [
       (Icons.newspaper, 'Cricket News', 1),
       (Icons.sports_cricket, 'Latest\nMatches', 2),
-      (Icons.scoreboard, 'Live Scores', 2),
-      (Icons.groups, 'Trending\nPlayers', 3),
+      (Icons.emoji_events, 'Tournaments', 3),
+      (Icons.groups, 'Trending\nPlayers', 4),
     ];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24),

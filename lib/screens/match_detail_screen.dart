@@ -117,8 +117,12 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> with SingleTicker
       );
 
   Widget _buildHeroHeader(MatchData? match, List<InningsData> inningsList) {
-    final team1Name = match?.team1Name ?? (inningsList.isNotEmpty ? inningsList[0].battingTeamName : 'Team 1');
-    final team2Name = match?.team2Name ?? (inningsList.length > 1 ? inningsList[1].battingTeamName : 'Team 2');
+    final team1Name = (match?.team1Name != null && match!.team1Name.trim().isNotEmpty && match.team1Name != 'Team 1')
+        ? match.team1Name
+        : (inningsList.isNotEmpty && inningsList[0].battingTeamName.trim().isNotEmpty ? inningsList[0].battingTeamName : 'Team 1');
+    final team2Name = (match?.team2Name != null && match!.team2Name.trim().isNotEmpty && match.team2Name != 'Team 2')
+        ? match.team2Name
+        : (inningsList.length > 1 && inningsList[1].battingTeamName.trim().isNotEmpty ? inningsList[1].battingTeamName : 'Team 2');
 
     InningsData? team1Innings;
     InningsData? team2Innings;
@@ -169,7 +173,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> with SingleTicker
                       Text('${team1Innings.score}/${team1Innings.wickets}', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
                       Text('OVERS: ${team1Innings.overs}', style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700)),
                     ] else
-                      const Text('-', style: TextStyle(color: Colors.white70, fontSize: 20)),
+                      const Text('Not Available', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -186,7 +190,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> with SingleTicker
                       Text('${team2Innings.score}/${team2Innings.wickets}', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
                       Text('OVERS: ${team2Innings.overs}', style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w700)),
                     ] else
-                      const Text('-', style: TextStyle(color: Colors.white70, fontSize: 20)),
+                      const Text('Not Available', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
                   ],
                 ),
               ),
@@ -200,7 +204,7 @@ class _MatchDetailScreenState extends State<MatchDetailScreen> with SingleTicker
               const Icon(Icons.location_on_outlined, size: 13, color: Colors.white70),
               const SizedBox(width: 4),
               Text(
-                match?.groundName ?? 'Gaddafi Stadium, Lahore',
+                match?.groundName != null && match!.groundName.isNotEmpty ? match.groundName : 'Venue Not Available',
                 style: const TextStyle(color: Colors.white70, fontSize: 11),
               ),
             ],
@@ -596,7 +600,26 @@ class _ScorecardTabWidgetState extends State<_ScorecardTabWidget> {
 
     if (displayList.isEmpty) {
       return const Center(
-        child: Text('No scorecard data available', style: TextStyle(color: K.body, fontSize: 14, fontWeight: FontWeight.w600)),
+        child: Padding(
+          padding: EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.assessment_outlined, color: K.body, size: 44),
+              SizedBox(height: 12),
+              Text(
+                'Data Not Available',
+                style: TextStyle(color: K.dark, fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Innings scorecard details are not available for this match.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: K.body, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
       );
     }
 

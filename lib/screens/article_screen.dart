@@ -52,7 +52,6 @@ class _FigmaArticleScreenState extends State<FigmaArticleScreen> {
             article = snapshot.data!;
           } else if (snapshot.hasError) {
             // If full article fails to load, use preview as fallback
-            print('DEBUG: Failed to load full article, using preview. Error: ${snapshot.error}');
             article = widget.article;
           } else {
             // Show loading state with preview

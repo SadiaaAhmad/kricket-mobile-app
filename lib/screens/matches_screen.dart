@@ -14,7 +14,10 @@ class MatchesScreen extends StatefulWidget {
 
 class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  int _selectedCategoryIndex = 0;
+  
+  // Search state
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   
   // Active page trackers
   int _fixturesPage = 1;
@@ -22,8 +25,6 @@ class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProvider
 
   late Future<MatchesResponse> _fixturesFuture;
   late Future<MatchesResponse> _resultsFuture;
-
-  final List<String> _categories = ['All', 'International', 'Domestic', 'PSL', 'Women'];
 
   @override
   void initState() {
@@ -61,6 +62,7 @@ class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProvider
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -76,8 +78,6 @@ class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProvider
         titleSpacing: 16,
         title: const Text('Matches', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -.5)),
         actions: const [
-          Icon(Icons.search, size: 20, color: Colors.white),
-          SizedBox(width: 14),
           Icon(Icons.notifications_none, size: 20, color: Colors.white),
           SizedBox(width: 16),
         ],
@@ -102,70 +102,44 @@ class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProvider
           ),
         ),
       ),
-      body: Column(
+      body: TabBarView(
+        controller: _tabController,
         children: [
-          // Category Filters Row
-          Container(
-            height: 48,
-            color: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _categories.length,
-              itemBuilder: (context, index) {
-                final category = _categories[index];
-                final active = _selectedCategoryIndex == index;
-                return GestureDetector(
-                  onTap: () => setState(() => _selectedCategoryIndex = index),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: active ? K.dark : const Color(0xFFF0F2F0),
-                      borderRadius: BorderRadius.circular(20),
-                      border: active ? null : Border.all(color: const Color(0xFFDCDFDB)),
-                    ),
-                    child: Center(
-                      child: Text(
-                        category,
-                        style: TextStyle(
-                          color: active ? K.lime : K.body,
-                          fontSize: 12,
-                          fontWeight: active ? FontWeight.w800 : FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
+          // Live Matches Tab View
+          _LiveMatchesView(
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            onSearchChanged: (val) => setState(() => _searchQuery = val),
+            onSearchCleared: () {
+              _searchController.clear();
+              setState(() => _searchQuery = '');
+            },
           ),
-          const Divider(height: 1, color: Color(0xFFE8ECE8)),
-          
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                // Live Matches Tab View
-                _LiveMatchesView(selectedCategory: _categories[_selectedCategoryIndex]),
-                // Fixtures Tab View
-                _MatchesListView(
-                  responseFuture: _fixturesFuture,
-                  selectedCategory: _categories[_selectedCategoryIndex],
-                  currentPage: _fixturesPage,
-                  onPageChanged: _changeFixturesPage,
-                ),
-                // Results Tab View
-                _MatchesListView(
-                  responseFuture: _resultsFuture,
-                  selectedCategory: _categories[_selectedCategoryIndex],
-                  currentPage: _resultsPage,
-                  onPageChanged: _changeResultsPage,
-                ),
-              ],
-            ),
+          // Fixtures Tab View
+          _MatchesListView(
+            responseFuture: _fixturesFuture,
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            onSearchChanged: (val) => setState(() => _searchQuery = val),
+            onSearchCleared: () {
+              _searchController.clear();
+              setState(() => _searchQuery = '');
+            },
+            currentPage: _fixturesPage,
+            onPageChanged: _changeFixturesPage,
+          ),
+          // Results Tab View
+          _MatchesListView(
+            responseFuture: _resultsFuture,
+            searchController: _searchController,
+            searchQuery: _searchQuery,
+            onSearchChanged: (val) => setState(() => _searchQuery = val),
+            onSearchCleared: () {
+              _searchController.clear();
+              setState(() => _searchQuery = '');
+            },
+            currentPage: _resultsPage,
+            onPageChanged: _changeResultsPage,
           ),
         ],
       ),
@@ -173,11 +147,60 @@ class _MatchesScreenState extends State<MatchesScreen> with SingleTickerProvider
   }
 }
 
+Widget _buildSearchBarWidget({
+  required TextEditingController controller,
+  required String searchQuery,
+  required ValueChanged<String> onChanged,
+  required VoidCallback onClear,
+}) {
+  return Padding(
+    padding: const EdgeInsets.fromLTRB(0, 4, 0, 12),
+    child: Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDCDFDB)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0A000000), blurRadius: 4, offset: Offset(0, 2)),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        textAlignVertical: TextAlignVertical.center,
+        onChanged: onChanged,
+        decoration: InputDecoration(
+          hintText: 'Search team name (e.g. Pakistan, India)...',
+          hintStyle: const TextStyle(color: K.body, fontSize: 13),
+          prefixIcon: const Icon(Icons.search, color: K.body, size: 20),
+          suffixIcon: searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 18, color: K.body),
+                  onPressed: onClear,
+                )
+              : null,
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        ),
+      ),
+    ),
+  );
+}
+
 
 class _LiveMatchesView extends StatelessWidget {
-  const _LiveMatchesView({required this.selectedCategory});
+  const _LiveMatchesView({
+    required this.searchController,
+    required this.searchQuery,
+    required this.onSearchChanged,
+    required this.onSearchCleared,
+  });
 
-  final String selectedCategory;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onSearchCleared;
 
   @override
   Widget build(BuildContext context) {
@@ -198,11 +221,23 @@ class _LiveMatchesView extends StatelessWidget {
       countryName: 'India',
     );
 
+    final q = searchQuery.trim().toLowerCase();
+    final matchesQuery = q.isEmpty ||
+        liveMatch.team1Name.toLowerCase().contains(q) ||
+        liveMatch.team2Name.toLowerCase().contains(q);
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Scrollable Search Bar at top of content
+          _buildSearchBarWidget(
+            controller: searchController,
+            searchQuery: searchQuery,
+            onChanged: onSearchChanged,
+            onClear: onSearchCleared,
+          ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
@@ -224,19 +259,25 @@ class _LiveMatchesView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          MatchCard(
-            match: liveMatch,
-            onTap: () {
-              // ignore: avoid_print
-              print('[DEBUG MatchesScreen] User tapped Live Match #${liveMatch.matchNo}: ${liveMatch.team1Name} vs ${liveMatch.team2Name}');
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => MatchDetailScreen(matchNo: liveMatch.matchNo, initialMatch: liveMatch),
-                ),
-              );
-            },
-          ),
+          if (matchesQuery)
+            MatchCard(
+              match: liveMatch,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => MatchDetailScreen(matchNo: liveMatch.matchNo, initialMatch: liveMatch),
+                  ),
+                );
+              },
+            )
+          else
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text('No live match matching your search.', style: TextStyle(color: K.body, fontSize: 14)),
+              ),
+            ),
         ],
       ),
     );
@@ -247,13 +288,19 @@ class _LiveMatchesView extends StatelessWidget {
 class _MatchesListView extends StatefulWidget {
   const _MatchesListView({
     required this.responseFuture,
-    required this.selectedCategory,
+    required this.searchController,
+    required this.searchQuery,
+    required this.onSearchChanged,
+    required this.onSearchCleared,
     required this.currentPage,
     required this.onPageChanged,
   });
 
   final Future<MatchesResponse> responseFuture;
-  final String selectedCategory;
+  final TextEditingController searchController;
+  final String searchQuery;
+  final ValueChanged<String> onSearchChanged;
+  final VoidCallback onSearchCleared;
   final int currentPage;
   final ValueChanged<int> onPageChanged;
 
@@ -316,21 +363,27 @@ class _MatchesListViewState extends State<_MatchesListView> {
           var matches = response.matches;
           final pagination = response.pagination;
 
-          if (widget.selectedCategory != 'All') {
-            final catLower = widget.selectedCategory.toLowerCase();
+          if (widget.searchQuery.trim().isNotEmpty) {
+            final q = widget.searchQuery.trim().toLowerCase();
             matches = matches.where((m) =>
-                m.tournament.toLowerCase().contains(catLower) ||
-                m.format.toLowerCase().contains(catLower) ||
-                (catLower == 'psl' && m.tournament.toLowerCase().contains('premier league')) ||
-                (catLower == 'women' && m.tournament.toLowerCase().contains('women'))
+              m.team1Name.toLowerCase().contains(q) ||
+              m.team2Name.toLowerCase().contains(q)
             ).toList();
           }
 
           return SingleChildScrollView(
             controller: _scrollController,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Column(
               children: [
+                // Scrollable Search Bar at top of content
+                _buildSearchBarWidget(
+                  controller: widget.searchController,
+                  searchQuery: widget.searchQuery,
+                  onChanged: widget.onSearchChanged,
+                  onClear: widget.onSearchCleared,
+                ),
+
                 if (matches.isNotEmpty) ...[
                   for (final match in matches)
                     MatchCard(
@@ -355,11 +408,11 @@ class _MatchesListViewState extends State<_MatchesListView> {
                         const Icon(Icons.sports_cricket, color: Color(0xFFB0BEB3), size: 48),
                         const SizedBox(height: 12),
                         Text(
-                          'No ${widget.selectedCategory} matches on Page ${widget.currentPage}',
+                          widget.searchQuery.isNotEmpty ? 'No team matches found matching "${widget.searchQuery}"' : 'No matches found on Page ${widget.currentPage}',
                           style: const TextStyle(color: K.dark, fontSize: 15, fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 6),
-                        const Text('Use the pagination bar below to switch pages or select "All".', textAlign: TextAlign.center, style: TextStyle(color: K.body, fontSize: 12)),
+                        const Text('Use the pagination bar below to switch pages.', textAlign: TextAlign.center, style: TextStyle(color: K.body, fontSize: 12)),
                       ],
                     ),
                   ),

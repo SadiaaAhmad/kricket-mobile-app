@@ -9,10 +9,10 @@ class MatchesApi {
 
   Future<MatchesResponse> getFixtures({int limit = 10, int page = 1}) async {
     // ignore: avoid_print
-    print('[DEBUG MatchesApi] Fetching fixtures from: $_baseUri/fixtures?Limit=$limit&Page=$page');
+    print('[DEBUG MatchesApi] Fetching fixtures from: $_baseUri/getallmatches?status=S&page=$page&per_page=$limit');
     try {
-      final uri = Uri.parse('$_baseUri/fixtures').replace(
-        queryParameters: {'Limit': '$limit', 'Page': '$page'},
+      final uri = Uri.parse('$_baseUri/getallmatches').replace(
+        queryParameters: {'status': 'S', 'page': '$page', 'per_page': '$limit'},
       );
       final response = await http.Client().get(uri).timeout(const Duration(seconds: 10));
       // ignore: avoid_print
@@ -46,10 +46,10 @@ class MatchesApi {
 
   Future<MatchesResponse> getResults({int limit = 10, int page = 1}) async {
     // ignore: avoid_print
-    print('[DEBUG MatchesApi] Fetching results from: $_baseUri/results?Limit=$limit&Page=$page');
+    print('[DEBUG MatchesApi] Fetching results from: $_baseUri/getallresults?status=P&page=$page&per_page=$limit');
     try {
-      final uri = Uri.parse('$_baseUri/results').replace(
-        queryParameters: {'Limit': '$limit', 'Page': '$page'},
+      final uri = Uri.parse('$_baseUri/getallresults').replace(
+        queryParameters: {'status': 'P', 'page': '$page', 'per_page': '$limit'},
       );
       final response = await http.Client().get(uri).timeout(const Duration(seconds: 10));
       // ignore: avoid_print
@@ -155,19 +155,19 @@ class MatchesApi {
   }
 
   List<CommentaryOverData> _getFallbackCommentary(int matchNo) {
-    try {
-      final payload = jsonDecode(rawCommentary9959Json) as Map<String, dynamic>;
-      final oversList = (payload['received_data'] as List<dynamic>?)
-              ?.cast<Map<String, dynamic>>()
-              .map(CommentaryOverData.fromJson)
-              .toList() ??
-          [];
-      return oversList;
-    } catch (e) {
-      // ignore: avoid_print
-      print('[DEBUG MatchesApi] Failed to parse fallback commentary: $e');
-      return [];
+    // Only return cached commentary for match 9959, otherwise return empty list
+    if (matchNo == 9959) {
+      try {
+        final payload = jsonDecode(rawCommentary9959Json) as Map<String, dynamic>;
+        final oversList = (payload['received_data'] as List<dynamic>?)
+                ?.cast<Map<String, dynamic>>()
+                .map(CommentaryOverData.fromJson)
+                .toList() ??
+            [];
+        return oversList;
+      } catch (_) {}
     }
+    return [];
   }
 
   MatchesResponse _parseMatchesResponseFromRawJson(String rawJson, {int requestedPage = 1}) {
@@ -187,42 +187,29 @@ class MatchesApi {
           totalPages: pagination.totalPages,
         );
       }
-      // ignore: avoid_print
-      print('[DEBUG MatchesApi] Parsed ${matchesList.length} matches (Page ${pagination.currentPage} of ${pagination.totalPages}) from fallback JSON dataset.');
       return MatchesResponse(matches: matchesList, pagination: pagination);
     } catch (e) {
-      // ignore: avoid_print
-      print('[DEBUG MatchesApi] Failed to parse raw fallback JSON: $e');
       return const MatchesResponse(matches: [], pagination: PaginationData());
     }
   }
 
   List<InningsData> _getFallbackScorecard(int matchNo) {
-    // ignore: avoid_print
-    print('[DEBUG MatchesApi] Searching fallback scorecard dataset for Match #$matchNo');
-    try {
-      final String jsonStr;
-      if (matchNo == 9620) {
-        jsonStr = rawScorecard9620Json;
-      } else {
-        jsonStr = rawScorecard10019Json;
-      }
-      final payload = jsonDecode(jsonStr) as Map<String, dynamic>;
-      final matchDataList = payload['received_data'] as List<dynamic>?;
-      if (matchDataList != null && matchDataList.isNotEmpty) {
-        final matchData = matchDataList.first as Map<String, dynamic>;
-        final innings = (matchData['Innings'] as List<dynamic>?)
-                ?.cast<Map<String, dynamic>>()
-                .map(InningsData.fromJson)
-                .toList() ??
-            [];
-        // ignore: avoid_print
-        print('[DEBUG MatchesApi] Loaded ${innings.length} fallback innings for Match #$matchNo.');
-        return innings;
-      }
-    } catch (e) {
-      // ignore: avoid_print
-      print('[DEBUG MatchesApi] Error reading fallback scorecard JSON: $e');
+    // Only return cached fallback scorecard if match is explicitly 9620 or 10019
+    if (matchNo == 9620 || matchNo == 10019) {
+      try {
+        final String jsonStr = matchNo == 9620 ? rawScorecard9620Json : rawScorecard10019Json;
+        final payload = jsonDecode(jsonStr) as Map<String, dynamic>;
+        final matchDataList = payload['received_data'] as List<dynamic>?;
+        if (matchDataList != null && matchDataList.isNotEmpty) {
+          final matchData = matchDataList.first as Map<String, dynamic>;
+          final innings = (matchData['Innings'] as List<dynamic>?)
+                  ?.cast<Map<String, dynamic>>()
+                  .map(InningsData.fromJson)
+                  .toList() ??
+              [];
+          return innings;
+        }
+      } catch (_) {}
     }
     return [];
   }

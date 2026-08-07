@@ -40,7 +40,9 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    articles = const FallbackNewsApi(KricketNewsApi(), MockNewsApi()).getArticles(limit: 10, start: 0);
+    articles = const KricketNewsApi()
+        .getPaginatedArticles(page: 1, perPage: 16)
+        .then((res) => res.articles);
   }
 
   @override

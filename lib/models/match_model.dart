@@ -40,6 +40,7 @@ class MatchData {
     required this.team1,
     required this.team2,
     required this.status,
+    this.tournamentId = 0,
     this.manOfMatchName,
     this.cityName,
     this.countryName,
@@ -58,6 +59,7 @@ class MatchData {
   final int team1;
   final int team2;
   final String status; // 'S' = Scheduled/Upcoming, 'L' = Live, 'P' = Played/Completed
+  final int tournamentId;
   final String? manOfMatchName;
   final String? cityName;
   final String? countryName;
@@ -87,6 +89,9 @@ class MatchData {
             .toList() ??
         [];
 
+    final tIdRaw = json['TournamentId'] ?? json['tournament_id'] ?? json['TournamentID'] ?? json['tournament_Id'] ?? 0;
+    final tId = tIdRaw is int ? tIdRaw : int.tryParse('$tIdRaw') ?? 0;
+
     return MatchData(
       matchNo: json['MatchNo'] as int? ?? 0,
       team1Name: cleanText(json['Team1Name'] as String? ?? 'Team 1'),
@@ -99,6 +104,7 @@ class MatchData {
       team1: json['Team1'] as int? ?? 0,
       team2: json['Team2'] as int? ?? 0,
       status: status,
+      tournamentId: tId,
       manOfMatchName: json['ManOfMatchName'] != null ? cleanText(json['ManOfMatchName'] as String) : null,
       cityName: json['CityName'] != null ? cleanText(json['CityName'] as String) : null,
       countryName: json['CountryName'] != null ? cleanText(json['CountryName'] as String) : null,

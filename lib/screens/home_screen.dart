@@ -23,11 +23,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final safeBottom = MediaQuery.paddingOf(context).bottom;
+
+    if (widget.articles.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.only(top: 120, bottom: 32 + safeBottom + 72),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(color: K.green),
+              SizedBox(height: 16),
+              Text('Loading Kricket.pk Live News...', style: TextStyle(color: K.body, fontSize: 14, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
+      );
+    }
+
     final topStory = widget.articles.first;
     final newsItems = _showAllNews ? widget.articles : widget.articles.take(3).toList();
     final trending = (widget.articles.length > 3 ? widget.articles.skip(3) : widget.articles.skip(1)).take(4).toList();
-
-    final safeBottom = MediaQuery.paddingOf(context).bottom;
     return SingleChildScrollView(
       padding: EdgeInsets.only(top: 16, bottom: 32 + safeBottom + 72),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

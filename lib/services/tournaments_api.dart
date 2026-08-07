@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:kricket_pk/data/real_tournaments.dart';
 import 'package:kricket_pk/models/tournament_model.dart';
+import 'package:kricket_pk/models/article_model.dart';
 
 class TournamentPaginatedResult {
   final List<TournamentData> tournaments;
@@ -160,6 +161,119 @@ class TournamentsApi {
           final List list = jsonBody['received_data'];
           return list.map((item) => item as Map<String, dynamic>).toList();
         }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Resolve team ID (like "428" or "1014") to actual Team Name
+  Future<String> resolveTeamName(String rawIdOrName, int tournamentId) async {
+    final cleaned = rawIdOrName.trim();
+    if (cleaned.isEmpty || cleaned == 'null') return '';
+    if (!RegExp(r'^\d+$').hasMatch(cleaned)) return cleaned;
+
+    final teamId = int.tryParse(cleaned) ?? 0;
+
+    // 1. Try tournament teams
+    try {
+      final teams = await getTournamentTeams(tournamentId);
+      for (final item in teams) {
+        final id = '${item['TeamId'] ?? item['team_id'] ?? item['Team_Id'] ?? item['id'] ?? item['Team'] ?? ''}'.trim();
+        final name = '${item['TeamName'] ?? item['team_name'] ?? item['Team_Name'] ?? item['name'] ?? ''}'.trim();
+        if (id == cleaned && name.isNotEmpty && !RegExp(r'^\d+$').hasMatch(name)) {
+          return name;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Try team by ID endpoint
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/getteambyid/$teamId')).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        final jsonBody = json.decode(response.body);
+        if (jsonBody['received_data'] != null) {
+          final rd = jsonBody['received_data'];
+          final name = '${rd['TeamName'] ?? rd['Name'] ?? rd['team_name'] ?? ''}'.trim();
+          if (name.isNotEmpty && !RegExp(r'^\d+$').hasMatch(name)) return name;
+        }
+      }
+    } catch (_) {}
+
+    // 3. Try squad by team endpoint
+    if (teamId > 0) {
+      try {
+        final squad = await getSquadByTeam(teamId);
+        if (squad.isNotEmpty) {
+          final first = squad.first;
+          final tName = '${first['TeamName'] ?? first['team_name'] ?? ''}'.trim();
+          if (tName.isNotEmpty && !RegExp(r'^\d+$').hasMatch(tName)) return tName;
+        }
+      } catch (_) {}
+    }
+
+    return cleaned;
+  }
+
+  /// Fetch tournament batting stats by ID
+  Future<List<Map<String, dynamic>>> getBattingStatsByTournament(int tournamentId) async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/getbattingbytournament/$tournamentId'));
+      if (response.statusCode == 200) {
+        final jsonBody = json.decode(response.body);
+        if (jsonBody['status'] == true && jsonBody['received_data'] != null) {
+          final List list = jsonBody['received_data'];
+          return list.map((item) => item as Map<String, dynamic>).toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Fetch tournament bowling stats by ID
+  Future<List<Map<String, dynamic>>> getBowlingStatsByTournament(int tournamentId) async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/getbowlingbytournament/$tournamentId'));
+      if (response.statusCode == 200) {
+        final jsonBody = json.decode(response.body);
+        if (jsonBody['status'] == true && jsonBody['received_data'] != null) {
+          final List list = jsonBody['received_data'];
+          return list.map((item) => item as Map<String, dynamic>).toList();
+        }
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  /// Fetch articles related to tournament by ObjectType=Tournament & ObjectId={tournamentId}
+  Future<List<ArticleData>> getArticlesByTournament(int tournamentId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/getarticlesbyobject?ObjectType=Tournament&ObjectId=$tournamentId'),
+      ).timeout(const Duration(seconds: 12));
+      if (response.statusCode == 200) {
+        final jsonBody = json.decode(utf8.decode(response.bodyBytes));
+        List<dynamic> list = [];
+        if (jsonBody is Map<String, dynamic>) {
+          if (jsonBody['status'] == true && jsonBody['received_data'] != null) {
+            final rec = jsonBody['received_data'];
+            if (rec is List) {
+              list = rec;
+            } else if (rec is Map<String, dynamic>) {
+              list = (rec['articles'] ?? rec['article'] ?? rec['data'] ?? []) as List<dynamic>;
+            }
+          } else if (jsonBody['data'] is List) {
+            list = jsonBody['data'];
+          } else if (jsonBody['articles'] is List) {
+            list = jsonBody['articles'];
+          }
+        } else if (jsonBody is List) {
+          list = jsonBody;
+        }
+
+        return list
+            .whereType<Map<String, dynamic>>()
+            .map(ArticleData.fromBackendJson)
+            .toList();
       }
     } catch (_) {}
     return [];

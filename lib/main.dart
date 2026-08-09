@@ -7,7 +7,7 @@ import 'package:kricket_pk/screens/home_screen.dart';
 import 'package:kricket_pk/screens/matches_screen.dart';
 import 'package:kricket_pk/screens/tournaments_screen.dart';
 import 'package:kricket_pk/screens/news_screen.dart';
-import 'package:kricket_pk/screens/placeholder_screen.dart';
+import 'package:kricket_pk/screens/players_screen.dart';
 
 void main() => runApp(const KricketApp());
 
@@ -47,7 +47,7 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: page < 4 ? const KricketBar() : null,
+        appBar: page < 5 ? const KricketBar() : null,
         body: FutureBuilder<List<ArticleData>>(
           future: articles,
           builder: (context, snapshot) {
@@ -63,7 +63,7 @@ class _AppShellState extends State<AppShell> {
                 NewsScreen(articles: snapshot.data!),
                 const MatchesScreen(),
                 const TournamentsScreen(),
-                const PlaceholderScreen(),
+                const PlayersScreen(),
               ],
             );
           },

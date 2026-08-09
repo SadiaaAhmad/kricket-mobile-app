@@ -67,8 +67,11 @@ class PlayerData {
     if (image.isNotEmpty && (image.startsWith('http://') || image.startsWith('https://'))) {
       return image;
     }
-    if (image.isNotEmpty && image != '1' && image != '0' && image != 'null' && image != ' ') {
-      return 'https://www.kricket.pk/uploads/player_images/$image';
+    if (image == '1' || image == 'true' || (image.isNotEmpty && image != '0' && image != 'null' && image != ' ')) {
+      return 'https://www.kricket.pk/images/players/P$playerId.jpg';
+    }
+    if (playerId > 0) {
+      return 'https://www.kricket.pk/images/players/P$playerId.jpg';
     }
     return '';
   }

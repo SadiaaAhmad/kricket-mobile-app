@@ -109,23 +109,71 @@ class _PlayerDetailScreenState extends State<PlayerDetailScreen> with SingleTick
               ),
               child: Column(
                 children: [
-                  CircleAvatar(
-                    radius: 44,
-                    backgroundColor: K.green.withValues(alpha: .3),
-                    child: ClipOval(
-                      child: player.avatarUrl.isNotEmpty
-                          ? NetImage(player.avatarUrl, width: 88, height: 88)
-                          : Container(
-                              width: 88,
-                              height: 88,
-                              color: K.lime.withValues(alpha: .2),
-                              child: Center(
-                                child: Text(
-                                  initialLetter,
-                                  style: const TextStyle(color: K.lime, fontSize: 36, fontWeight: FontWeight.w800),
+                  GestureDetector(
+                    onTap: player.avatarUrl.isNotEmpty
+                        ? () => showDialog(
+                              context: context,
+                              builder: (_) => Dialog(
+                                backgroundColor: Colors.black,
+                                insetPadding: const EdgeInsets.all(16),
+                                child: Stack(
+                                  children: [
+                                    InteractiveViewer(
+                                      child: Center(
+                                        child: NetImage(
+                                          player.avatarUrl,
+                                          fit: BoxFit.contain,
+                                        ),
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: 10,
+                                      right: 10,
+                                      child: IconButton(
+                                        icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                                        onPressed: () => Navigator.pop(context),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            )
+                        : null,
+                    child: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 54,
+                          backgroundColor: K.green.withValues(alpha: .4),
+                          child: ClipOval(
+                            child: player.avatarUrl.isNotEmpty
+                                ? NetImage(player.avatarUrl, width: 108, height: 108, fit: BoxFit.cover)
+                                : Container(
+                                    width: 108,
+                                    height: 108,
+                                    color: K.lime.withValues(alpha: .2),
+                                    child: Center(
+                                      child: Text(
+                                        initialLetter,
+                                        style: const TextStyle(color: K.lime, fontSize: 44, fontWeight: FontWeight.w800),
+                                      ),
+                                    ),
+                                  ),
+                          ),
+                        ),
+                        if (player.avatarUrl.isNotEmpty)
+                          Positioned(
+                            bottom: 2,
+                            right: 2,
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: const BoxDecoration(
+                                color: K.green,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.zoom_in, color: Colors.white, size: 16),
                             ),
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 14),
